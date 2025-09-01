@@ -1,0 +1,293 @@
+basePath: /
+definitions:
+  models.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  models.RegisterRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+    type: object
+  models.Task:
+    properties:
+      createdAt:
+        type: integer
+      id:
+        type: string
+      memo:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      userId:
+        type: string
+    type: object
+  models.TaskCreateRequest:
+    properties:
+      memo:
+        type: string
+      title:
+        type: string
+      userId:
+        type: string
+    type: object
+  models.User:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  models.UserUpdateRequest:
+    properties:
+      name:
+        type: string
+    type: object
+host: localhost:8082
+info:
+  contact: {}
+  description: 這是 TaskTrek 的後端 API 文件，包含帳號、任務等功能。
+  title: TaskTrek API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: 帳號密碼登入，回傳 JWT token
+      parameters:
+      - description: 登入資訊
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 用戶登入
+      tags:
+      - Auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: 建立新帳號，回傳 JWT token
+      parameters:
+      - description: 註冊資訊
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 註冊新用戶
+      tags:
+      - Auth
+  /tasks:
+    get:
+      description: 依 userId 取得所有任務
+      parameters:
+      - description: 用戶ID
+        in: query
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Task'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 取得任務列表
+      tags:
+      - Tasks
+    post:
+      consumes:
+      - application/json
+      description: 建立新任務
+      parameters:
+      - description: 任務資訊
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.TaskCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 新增任務
+      tags:
+      - Tasks
+  /tasks/{id}:
+    get:
+      description: 依任務ID取得任務
+      parameters:
+      - description: 任務ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Task'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 取得單一任務
+      tags:
+      - Tasks
+  /users/{id}:
+    get:
+      description: 依用戶ID取得用戶資料
+      parameters:
+      - description: 用戶ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 取得用戶資訊
+      tags:
+      - Users
+    patch:
+      consumes:
+      - application/json
+      description: 修改用戶名稱
+      parameters:
+      - description: 用戶ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 更新資訊
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserUpdateRequest'
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 更新用戶資訊
+      tags:
+      - Users
+swagger: "2.0"
