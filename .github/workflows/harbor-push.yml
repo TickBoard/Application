@@ -32,12 +32,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           REF="${GITHUB_REF}"
           SHA_TAG="sha-${GITHUB_SHA::7}"
           PUSH="false"
           BRANCH_SAFE=""
-
           if [[ "$REF" == refs/heads/main ]]; then
             PUSH="true"
           elif [[ "$REF" == refs/tags/* ]]; then
@@ -46,19 +44,15 @@ jobs:
             BRANCH_SAFE=$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" | tr '/_' '--')
             PUSH="false"
           fi
-
           if [[ "$PUSH" == "true" ]]; then
             REGISTRY_RAW='${{ secrets.HARBOR_REGISTRY }}'
             REGISTRY="${REGISTRY_RAW#http://}"
             REGISTRY="${REGISTRY#https://}"
             REGISTRY="${REGISTRY%/}"
-
             USERNAME_RAW='${{ secrets.HARBOR_USERNAME }}'
             USERNAME_CLEAN=$(printf '%s' "${USERNAME_RAW}" | tr -d '\r\n')
-
             PASSWORD_RAW='${{ secrets.HARBOR_PASSWORD }}'
             PASSWORD_CLEAN=$(printf '%s' "${PASSWORD_RAW}" | tr -d '\r\n')
-
             PROJECT='${{ secrets.HARBOR_PROJECT }}'
             IMAGE_API="${REGISTRY}/${PROJECT}/gin-api"
             IMAGE_FE="${REGISTRY}/${PROJECT}/frontend"
@@ -69,10 +63,8 @@ jobs:
             IMAGE_API="local/gin-api"
             IMAGE_FE="local/frontend"
           fi
-
           TAGS_API=""
           TAGS_FE=""
-
           if [[ "$REF" == refs/heads/main ]]; then
             TAGS_API+="${IMAGE_API}:latest\n${IMAGE_API}:${SHA_TAG}"
             TAGS_FE+="${IMAGE_FE}:latest\n${IMAGE_FE}:${SHA_TAG}"
@@ -84,7 +76,6 @@ jobs:
             TAGS_API+="${IMAGE_API}:${BRANCH_SAFE}-${SHA_TAG}"
             TAGS_FE+="${IMAGE_FE}:${BRANCH_SAFE}-${SHA_TAG}"
           fi
-
           {
             echo "push=${PUSH}"
             echo "registry=${REGISTRY}"
@@ -98,12 +89,36 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Probe Harbor /v2 (401 is expected)
+      - name: Probe Harbor /v2
         if: steps.vars.outputs.push == 'true'
         run: |
           set -euo pipefail
           echo "Registry: ${{ steps.vars.outputs.registry }}"
           curl -sI "https://${{ steps.vars.outputs.registry }}/v2/" | sed -n '1p;/Www-Authenticate/p'
+
+      - name: Validate robot username & project
+        if: steps.vars.outputs.push == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          U='${{ steps.vars.outputs.username }}'
+          P='${{ steps.vars.outputs.password }}'
+          R='${{ steps.vars.outputs.registry }}'
+          PROJ='${{ secrets.HARBOR_PROJECT }}'
+          case "$U" in
+            robot$*+*) : ;;
+            *) echo "❌ HARBOR_USERNAME 必須是 robot\$<project>+<name>，目前: '$U'"; exit 1;;
+          esac
+          code=$(curl -sk -o /dev/null -w "%{http_code}" "https://${R}/v2/")
+          if [[ "$code" -lt 200 || "$code" -ge 500 ]]; then
+            echo "❌ Registry 不可達或回應碼異常: $code"; exit 1
+          fi
+          if ! printf '%s' "$P" | docker login -u "$U" --password-stdin "$R" >/dev/null 2>&1; then
+            echo "⚠️ 以 robot 登入 docker 失敗，稍後正式 login 仍會重試。請檢查 robot 帳密與權限。"
+          else
+            echo "✅ robot docker login 預檢通過"
+          fi
+          echo "ℹ️ 請確認 Harbor 專案 '${PROJ}' 內已存在 repositories: gin-api, frontend（或給 robot 建立 repository 權限讓其自動建立）"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
