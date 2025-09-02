@@ -101,26 +101,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          U='${{ steps.vars.outputs.username }}'
+          U_RAW='${{ steps.vars.outputs.username }}'
           P='${{ steps.vars.outputs.password }}'
           R='${{ steps.vars.outputs.registry }}'
-          PROJ='${{ secrets.HARBOR_PROJECT }}'
-          EXPECTED_PREFIX="robot\$${PROJ}+"
-          if [[ "$U" != ${EXPECTED_PREFIX}* ]]; then
-            echo "❌ HARBOR_USERNAME 應為 robot\$${PROJ}+<name>，目前: '***'"
-            exit 1
+          PROJ_RAW='${{ secrets.HARBOR_PROJECT }}'
+          U_TRIM=$(printf '%s' "$U_RAW" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          PROJ_TRIM=$(printf '%s' "$PROJ_RAW" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          U_LC=$(printf '%s' "$U_TRIM" | tr '[:upper:]' '[:lower:]')
+          PROJ_LC=$(printf '%s' "$PROJ_TRIM" | tr '[:upper:]' '[:lower:]')
+          case "$U_LC" in
+            robot$*+*) : ;;
+            *) echo "❌ HARBOR_USERNAME 格式錯誤，必須為 robot\$<project>+<name>"; exit 1;;
+          esac
+          EXPECTED_PREFIX="robot\$${PROJ_LC}+"
+          if [[ "$U_LC" != ${EXPECTED_PREFIX}* ]]; then
+            echo "⚠️ HARBOR_USERNAME 與 project 前綴可能不一致（忽略大小寫檢查）。"
           fi
           code=$(curl -sk -o /dev/null -w "%{http_code}" "https://${R}/v2/")
           if [[ "$code" -lt 200 || "$code" -ge 500 ]]; then
-            echo "❌ Registry /v2 回應碼異常: $code"
-            exit 1
+            echo "❌ Registry /v2 回應碼異常: $code"; exit 1
           fi
-          if ! printf '%s' "$P" | docker login -u "$U" --password-stdin "$R" >/dev/null 2>&1; then
-            echo "⚠️ 預檢 docker login 失敗，稍後正式 login 仍會重試。請檢查 robot 的 CLI Secret 與權限。"
+          if ! printf '%s' "$P" | docker login -u "$U_TRIM" --password-stdin "$R" >/dev/null 2>&1; then
+            echo "⚠️ 預檢 docker login 失敗，稍後正式 login 仍會重試。請檢查 robot CLI Secret 與權限。"
           else
             echo "✅ robot docker login 預檢通過"
           fi
-          echo "ℹ️ 請確認專案 '${PROJ}' 內已有 repositories: gin-api, frontend，或授予 Create Repository 權限"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
