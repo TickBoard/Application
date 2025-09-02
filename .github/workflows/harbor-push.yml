@@ -96,37 +96,6 @@ jobs:
           echo "Registry: ${{ steps.vars.outputs.registry }}"
           curl -sI "https://${{ steps.vars.outputs.registry }}/v2/" | sed -n '1p;/Www-Authenticate/p'
 
-      - name: Validate robot username & project
-        if: steps.vars.outputs.push == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          U_RAW='${{ steps.vars.outputs.username }}'
-          P='${{ steps.vars.outputs.password }}'
-          R='${{ steps.vars.outputs.registry }}'
-          PROJ_RAW='${{ secrets.HARBOR_PROJECT }}'
-          U_TRIM=$(printf '%s' "$U_RAW" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          PROJ_TRIM=$(printf '%s' "$PROJ_RAW" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          U_LC=$(printf '%s' "$U_TRIM" | tr '[:upper:]' '[:lower:]')
-          PROJ_LC=$(printf '%s' "$PROJ_TRIM" | tr '[:upper:]' '[:lower:]')
-          case "$U_LC" in
-            robot$*+*) : ;;
-            *) echo "❌ HARBOR_USERNAME 格式錯誤，必須為 robot\$<project>+<name>"; exit 1;;
-          esac
-          EXPECTED_PREFIX="robot\$${PROJ_LC}+"
-          if [[ "$U_LC" != ${EXPECTED_PREFIX}* ]]; then
-            echo "⚠️ HARBOR_USERNAME 與 project 前綴可能不一致（忽略大小寫檢查）。"
-          fi
-          code=$(curl -sk -o /dev/null -w "%{http_code}" "https://${R}/v2/")
-          if [[ "$code" -lt 200 || "$code" -ge 500 ]]; then
-            echo "❌ Registry /v2 回應碼異常: $code"; exit 1
-          fi
-          if ! printf '%s' "$P" | docker login -u "$U_TRIM" --password-stdin "$R" >/dev/null 2>&1; then
-            echo "⚠️ 預檢 docker login 失敗，稍後正式 login 仍會重試。請檢查 robot CLI Secret 與權限。"
-          else
-            echo "✅ robot docker login 預檢通過"
-          fi
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
