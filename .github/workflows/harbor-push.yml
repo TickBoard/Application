@@ -2,10 +2,10 @@ name: Build and Push Images to Harbor
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
+    branches: ["main"]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 concurrency:
   group: harbor-${{ github.ref }}
@@ -17,57 +17,79 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive tags
+      - name: Derive tags and sanitized creds
         id: vars
         shell: bash
         run: |
           set -euo pipefail
-          # Sanitize registry (strip scheme and trailing slash)
+
+          # 1) Sanitize registry (strip scheme and trailing slash)
           REGISTRY_RAW='${{ secrets.HARBOR_REGISTRY }}'
           REGISTRY="${REGISTRY_RAW#http://}"
           REGISTRY="${REGISTRY#https://}"
           REGISTRY="${REGISTRY%/}"
 
-          # Sanitize username (remove any stray newlines/CR)
+          # 2) Sanitize username/password (strip CR/LF)
           USERNAME_RAW='${{ secrets.HARBOR_USERNAME }}'
           USERNAME_CLEAN=$(printf '%s' "${USERNAME_RAW}" | tr -d '\r\n')
 
-          # Sanitize password (remove CR/LF)
           PASSWORD_RAW='${{ secrets.HARBOR_PASSWORD }}'
           PASSWORD_CLEAN=$(printf '%s' "${PASSWORD_RAW}" | tr -d '\r\n')
 
+          # 3) Compose image names
           PROJECT='${{ secrets.HARBOR_PROJECT }}'
           IMAGE_API="${REGISTRY}/${PROJECT}/gin-api"
-          IMAGE_FRONTEND="${REGISTRY}/${PROJECT}/frontend"
+          IMAGE_FE="${REGISTRY}/${PROJECT}/frontend"
+
+          # 4) Tag strategy
           REF="${GITHUB_REF}"
           SHA_TAG="sha-${GITHUB_SHA::7}"
+
           TAGS_API=""
           TAGS_FE=""
+          PUSH="false"
+
           if [[ "$REF" == refs/heads/main ]]; then
-            TAGS_API+="${IMAGE_API}:latest,${IMAGE_API}:${SHA_TAG}"
-            TAGS_FE+="${IMAGE_FRONTEND}:latest,${IMAGE_FRONTEND}:${SHA_TAG}"
-            echo "push=true" >> "$GITHUB_OUTPUT"
+            TAGS_API+="${IMAGE_API}:latest\n${IMAGE_API}:${SHA_TAG}"
+            TAGS_FE+="${IMAGE_FE}:latest\n${IMAGE_FE}:${SHA_TAG}"
+            PUSH="true"
           elif [[ "$REF" == refs/tags/* ]]; then
             VERSION_TAG="${REF#refs/tags/}"
             TAGS_API+="${IMAGE_API}:${VERSION_TAG}"
-            TAGS_FE+="${IMAGE_FRONTEND}:${VERSION_TAG}"
-            echo "push=true" >> "$GITHUB_OUTPUT"
+            TAGS_FE+="${IMAGE_FE}:${VERSION_TAG}"
+            PUSH="true"
           else
-            # PRs and feature branches: build only, no push
-            BRANCH_SAFE=$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" | tr '/' '-')
+            BRANCH_SAFE=$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" | tr '/_' '--')
             TAGS_API+="${IMAGE_API}:${BRANCH_SAFE}-${SHA_TAG}"
-            TAGS_FE+="${IMAGE_FRONTEND}:${BRANCH_SAFE}-${SHA_TAG}"
-            echo "push=false" >> "$GITHUB_OUTPUT"
+            TAGS_FE+="${IMAGE_FE}:${BRANCH_SAFE}-${SHA_TAG}"
+            PUSH="false"
           fi
-          echo "api_tags=${TAGS_API}" >> "$GITHUB_OUTPUT"
-          echo "fe_tags=${TAGS_FE}" >> "$GITHUB_OUTPUT"
-          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
-          echo "username=${USERNAME_CLEAN}" >> "$GITHUB_OUTPUT"
-          echo "password=${PASSWORD_CLEAN}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "registry=${REGISTRY}"
+            echo "username=${USERNAME_CLEAN}"
+            echo "password=${PASSWORD_CLEAN}"
+            # 注意：docker/build-push-action 支援以換行分隔的多個 tags
+            echo "api_tags<<EOF"
+            printf '%b\n' "${TAGS_API}"
+            echo "EOF"
+            echo "fe_tags<<EOF"
+            printf '%b\n' "${TAGS_FE}"
+            echo "EOF"
+            echo "push=${PUSH}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Probe Harbor /v2 (401 is expected)
+        run: |
+          set -euo pipefail
+          echo "Registry: ${{ steps.vars.outputs.registry }}"
+          # 401 未授權是正常，重點是確認可連線與回應標頭
+          curl -sI "https://${{ steps.vars.outputs.registry }}/v2/" | sed -n '1p;/Www-Authenticate/p'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -81,7 +103,7 @@ jobs:
           password: ${{ steps.vars.outputs.password }}
 
       - name: Build gin-api image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./gin-api
           file: ./gin-api/Dockerfile
@@ -89,9 +111,13 @@ jobs:
           tags: ${{ steps.vars.outputs.api_tags }}
           cache-from: type=gha,scope=gin-api
           cache-to: type=gha,mode=max,scope=gin-api
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
 
       - name: Build frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
@@ -99,3 +125,13 @@ jobs:
           tags: ${{ steps.vars.outputs.fe_tags }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+
+      - name: Debug login via docker CLI if previous login failed
+        if: failure() && steps.vars.outputs.push == 'true'
+        run: |
+          set -euo pipefail
+          echo "${{ steps.vars.outputs.password }}" | docker login -u "${{ steps.vars.outputs.username }}" --password-stdin "${{ steps.vars.outputs.registry }}" || true
