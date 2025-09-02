@@ -105,20 +105,22 @@ jobs:
           P='${{ steps.vars.outputs.password }}'
           R='${{ steps.vars.outputs.registry }}'
           PROJ='${{ secrets.HARBOR_PROJECT }}'
-          case "$U" in
-            robot$*+*) : ;;
-            *) echo "❌ HARBOR_USERNAME 必須是 robot\$<project>+<name>，目前: '$U'"; exit 1;;
-          esac
+          EXPECTED_PREFIX="robot\$${PROJ}+"
+          if [[ "$U" != ${EXPECTED_PREFIX}* ]]; then
+            echo "❌ HARBOR_USERNAME 應為 robot\$${PROJ}+<name>，目前: '***'"
+            exit 1
+          fi
           code=$(curl -sk -o /dev/null -w "%{http_code}" "https://${R}/v2/")
           if [[ "$code" -lt 200 || "$code" -ge 500 ]]; then
-            echo "❌ Registry 不可達或回應碼異常: $code"; exit 1
+            echo "❌ Registry /v2 回應碼異常: $code"
+            exit 1
           fi
           if ! printf '%s' "$P" | docker login -u "$U" --password-stdin "$R" >/dev/null 2>&1; then
-            echo "⚠️ 以 robot 登入 docker 失敗，稍後正式 login 仍會重試。請檢查 robot 帳密與權限。"
+            echo "⚠️ 預檢 docker login 失敗，稍後正式 login 仍會重試。請檢查 robot 的 CLI Secret 與權限。"
           else
             echo "✅ robot docker login 預檢通過"
           fi
-          echo "ℹ️ 請確認 Harbor 專案 '${PROJ}' 內已存在 repositories: gin-api, frontend（或給 robot 建立 repository 權限讓其自動建立）"
+          echo "ℹ️ 請確認專案 '${PROJ}' 內已有 repositories: gin-api, frontend，或授予 Create Repository 權限"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
