@@ -36,6 +36,10 @@ jobs:
           USERNAME_RAW='${{ secrets.HARBOR_USERNAME }}'
           USERNAME_CLEAN=$(printf '%s' "${USERNAME_RAW}" | tr -d '\r\n')
 
+          # Sanitize password (remove CR/LF)
+          PASSWORD_RAW='${{ secrets.HARBOR_PASSWORD }}'
+          PASSWORD_CLEAN=$(printf '%s' "${PASSWORD_RAW}" | tr -d '\r\n')
+
           PROJECT='${{ secrets.HARBOR_PROJECT }}'
           IMAGE_API="${REGISTRY}/${PROJECT}/gin-api"
           IMAGE_FRONTEND="${REGISTRY}/${PROJECT}/frontend"
@@ -63,6 +67,7 @@ jobs:
           echo "fe_tags=${TAGS_FE}" >> "$GITHUB_OUTPUT"
           echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
           echo "username=${USERNAME_CLEAN}" >> "$GITHUB_OUTPUT"
+          echo "password=${PASSWORD_CLEAN}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -73,7 +78,7 @@ jobs:
         with:
           registry: ${{ steps.vars.outputs.registry }}
           username: ${{ steps.vars.outputs.username }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
+          password: ${{ steps.vars.outputs.password }}
 
       - name: Build gin-api image
         uses: docker/build-push-action@v5
